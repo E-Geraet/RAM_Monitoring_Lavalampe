@@ -1,11 +1,48 @@
 use minifb::{Key, ScaleMode, Window, WindowOptions};
 use image::{io::Reader as ImageReader, GenericImageView};
+use sysinfo::{System, SystemExt};
 
 const WIDTH: usize = 128;
 const HEIGHT: usize = 128;
 const IMAGE_PATH: &str = "assets/lavalampe_rot.png";
 
 fn main() {
+    // Ein neues System-Objekt erstellen
+    let mut sys = System::new_all();
+
+    // Systemdaten aktualisieren
+    sys.refresh_all();
+
+    // RAM-Informationen in Variablen speichern
+    let total_ram = sys.total_memory();
+    let used_ram = sys.used_memory();
+
+    // RAM-Informationen ausgeben
+    println!("\n=== Speicher ===");
+    println!("Gesamter RAM: {} MB", total_ram / 1024 / 1024);
+    println!("Verwendeter RAM: {} MB", used_ram / 1024 / 1024);
+
+    // Jetzt kannst du total_ram und used_ram später im Code wiederverwenden
+    // Zum Beispiel, um den freien RAM zu berechnen:
+    let free_ram = total_ram - used_ram;
+    println!("Freier RAM: {} MB", free_ram / 1024 / 1024);
+
+    // Oder den Prozentsatz der RAM-Nutzung:
+    // RAM-Auslastung und Farbauswahl
+    let ram_usage_percent = (used_ram as f64 / total_ram as f64) * 100.0;
+    println!("RAM-Auslastung: {:.2}%", ram_usage_percent);
+
+    // Farbauswahl basierend auf RAM-Auslastung
+    if ram_usage_percent <= 30.0 {
+        println!("grün");
+    } else if ram_usage_percent <= 50.0 {
+        println!("gelb");
+    } else if ram_usage_percent <= 80.0 {
+        println!("orange");
+    } else {
+        println!("rot");
+    }
+
     let img = match ImageReader::open(IMAGE_PATH) {
         Ok(reader) => match reader.decode() {
             Ok(img) => img,
