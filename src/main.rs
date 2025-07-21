@@ -23,7 +23,7 @@ const ORANGE_LAVA: &str = "assets/lavalampe_orange.png";
 const RED_LAVA: &str = "assets/lavalampe_red.png";
 
 // Window size modes
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum WindowSizeMode {
     Small,   // 128x128
     Medium,  // 256x256
@@ -39,11 +39,19 @@ impl WindowSizeMode {
         }
     }
 
-    fn next(&self) -> WindowSizeMode {
+    fn scale_up(&self) -> WindowSizeMode {
         match self {
             WindowSizeMode::Small => WindowSizeMode::Medium,
             WindowSizeMode::Medium => WindowSizeMode::Large,
-            WindowSizeMode::Large => WindowSizeMode::Small,
+            WindowSizeMode::Large => WindowSizeMode::Large, // Stays large
+        }
+    }
+
+    fn scale_down(&self) -> WindowSizeMode {
+        match self {
+            WindowSizeMode::Small => WindowSizeMode::Small, // Stays small
+            WindowSizeMode::Medium => WindowSizeMode::Small,
+            WindowSizeMode::Large => WindowSizeMode::Medium,
         }
     }
 
@@ -155,7 +163,7 @@ fn blend_alpha(background: [u8; 4], foreground: Rgba<u8>) -> [u8; 4] {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting RAM Lava Lamp...");
-    println!("Controls: + = Cycle Window Size (128→256→512→128), Esc = Exit");
+    println!("Controls: Ctrl + Up Arrow = Scale Up, Ctrl + Down Arrow = Scale Down, Esc = Exit");
 
     let mut system = System::new_all();
 
@@ -182,7 +190,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Window size state tracking
-    let mut current_size_mode = WindowSizeMode::Small; // New cycling size mode
+    let mut current_size_mode = WindowSizeMode::Small;
+    let mut ctrl_pressed = false; // State for Ctrl key
 
     // Animation state
     let mut current_animation: Option<(Vec<Rgba<u8>>, usize, usize)> = None;
@@ -209,24 +218,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..
             } => {
                 if let Some(keycode) = input.virtual_keycode {
-                    if input.state == winit::event::ElementState::Pressed {
-                        match keycode {
-                            VirtualKeyCode::Escape => {
-                                println!("Shutting down...");
-                                *control_flow = ControlFlow::Exit;
+                    match input.state {
+                        winit::event::ElementState::Pressed => {
+                            match keycode {
+                                VirtualKeyCode::LControl | VirtualKeyCode::RControl => {
+                                    ctrl_pressed = true;
+                                }
+                                VirtualKeyCode::Escape => {
+                                    println!("Shutting down...");
+                                    *control_flow = ControlFlow::Exit;
+                                }
+                                VirtualKeyCode::Up => {
+                                    if ctrl_pressed { // Check if Ctrl is pressed
+                                        let old_size_mode = current_size_mode;
+                                        current_size_mode = current_size_mode.scale_up();
+                                        if current_size_mode != old_size_mode { // Only update if size changed
+                                            let size = current_size_mode.get_size();
+                                            println!("Scaling window up to {}", current_size_mode.description());
+                                            let new_size = LogicalSize::new(size as f64, size as f64);
+                                            window.set_inner_size(new_size);
+                                            window.request_redraw();
+                                        }
+                                    }
+                                }
+                                VirtualKeyCode::Down => {
+                                    if ctrl_pressed { // Check if Ctrl is pressed
+                                        let old_size_mode = current_size_mode;
+                                        current_size_mode = current_size_mode.scale_down();
+                                        if current_size_mode != old_size_mode { // Only update if size changed
+                                            let size = current_size_mode.get_size();
+                                            println!("Scaling window down to {}", current_size_mode.description());
+                                            let new_size = LogicalSize::new(size as f64, size as f64);
+                                            window.set_inner_size(new_size);
+                                            window.request_redraw();
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
-                            VirtualKeyCode::Plus | VirtualKeyCode::Equals => {
-                                // Cycle through window sizes: 128 -> 256 -> 512 -> 128
-                                current_size_mode = current_size_mode.next();
-                                let size = current_size_mode.get_size();
-
-                                println!("Cycling window size to {}", current_size_mode.description());
-
-                                let new_size = LogicalSize::new(size as f64, size as f64);
-                                window.set_inner_size(new_size);
-                                window.request_redraw();
+                        }
+                        winit::event::ElementState::Released => {
+                            match keycode {
+                                VirtualKeyCode::LControl | VirtualKeyCode::RControl => {
+                                    ctrl_pressed = false;
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 }
