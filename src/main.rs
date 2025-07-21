@@ -14,7 +14,7 @@ use std::sync::Mutex;
 
 // TODO: Maybe make these configurable later?
 const WINDOW_SIZE: usize = 128;
-const ANIMATION_FRAMES: usize = 90;
+const ANIMATION_FRAMES: usize = 200;
 
 // Asset paths - probably should move these to a config file at some point
 const GREEN_LAVA: &str = "assets/lavalampe_green.png";
