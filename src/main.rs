@@ -1,246 +1,402 @@
-use minifb::{Key, ScaleMode, Window, WindowOptions};
-use image::{io::Reader as ImageReader, GenericImageView};
+use pixels::{Pixels, SurfaceTexture};
+use winit::{
+    dpi::LogicalSize,
+    event::{Event, VirtualKeyCode, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
+use image::{io::Reader as ImageReader, Rgba};
 use sysinfo::{System, SystemExt};
 use std::time::{Duration, Instant};
 use std::path::Path;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-// Fenster- und Frame-Dimensionen
-const FRAME_WIDTH: usize = 128;
-const FRAME_HEIGHT: usize = 128;
-const NUM_FRAMES: usize = 90; // Erwartete Anzahl der Frames pro Sprite-Sheet
+// TODO: Maybe make these configurable later?
+const WINDOW_SIZE: usize = 128;
+const ANIMATION_FRAMES: usize = 90;
 
-// Pfade zu den Sprite-Sheets
-const SPRITE_PATH_GREEN: &str = "assets/lavalampe_green.png";
-const SPRITE_PATH_YELLOW: &str = "assets/lavalampe_yellow.png";
-const SPRITE_PATH_ORANGE: &str = "assets/lavalampe_orange.png";
-const SPRITE_PATH_RED: &str = "assets/lavalampe_red.png";
+// Asset paths - probably should move these to a config file at some point
+const GREEN_LAVA: &str = "assets/lavalampe_green.png";
+const YELLOW_LAVA: &str = "assets/lavalampe_yellow.png";
+const ORANGE_LAVA: &str = "assets/lavalampe_orange.png";
+const RED_LAVA: &str = "assets/lavalampe_red.png";
 
+// Window size modes
+#[derive(Debug, Clone, Copy)]
+enum WindowSizeMode {
+    Small,   // 128x128
+    Medium,  // 256x256
+    Large,   // 512x512
+}
+
+impl WindowSizeMode {
+    fn get_size(&self) -> usize {
+        match self {
+            WindowSizeMode::Small => WINDOW_SIZE,
+            WindowSizeMode::Medium => WINDOW_SIZE * 2,
+            WindowSizeMode::Large => WINDOW_SIZE * 4,
+        }
+    }
+
+    fn next(&self) -> WindowSizeMode {
+        match self {
+            WindowSizeMode::Small => WindowSizeMode::Medium,
+            WindowSizeMode::Medium => WindowSizeMode::Large,
+            WindowSizeMode::Large => WindowSizeMode::Small,
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            WindowSizeMode::Small => "128x128",
+            WindowSizeMode::Medium => "256x256",
+            WindowSizeMode::Large => "512x512",
+        }
+    }
+}
+
+// Simple cache for print messages so we don't spam the console
 lazy_static::lazy_static! {
-    static ref PRINTED_MESSAGES: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+    static ref ALREADY_PRINTED: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
 }
 
-fn println_once(message: &str) {
-    let mut printed_messages = PRINTED_MESSAGES.lock().unwrap();
-    if !printed_messages.contains(message) {
-        println!("{}", message);
-        printed_messages.insert(message.to_string());
-    }
-}
-fn eprintln_once(message: &str) {
-    let mut printed_messages = PRINTED_MESSAGES.lock().unwrap();
-    if !printed_messages.contains(message) {
-        eprintln!("{}", message);
-        printed_messages.insert(message.to_string());
+// Helper to print messages only once
+fn print_once(msg: &str) {
+    let mut cache = ALREADY_PRINTED.lock().unwrap();
+    if !cache.contains(msg) {
+        println!("{}", msg);
+        cache.insert(msg.to_string());
     }
 }
 
-fn load_sprite_sheet(path_str: &str) -> Option<(Vec<u32>, usize, usize)> {
-    if !Path::new(path_str).exists() {
-        eprintln_once(&format!("WARNUNG: Sprite-Sheet nicht gefunden unter '{}'", path_str));
+fn warn_once(msg: &str) {
+    let mut cache = ALREADY_PRINTED.lock().unwrap();
+    if !cache.contains(msg) {
+        eprintln!("Warning: {}", msg);
+        cache.insert(msg.to_string());
+    }
+}
+
+fn load_lava_animation(file_path: &str) -> Option<(Vec<Rgba<u8>>, usize, usize)> {
+    // Check if file exists first
+    if !Path::new(file_path).exists() {
+        warn_once(&format!("Can't find sprite sheet: {}", file_path));
         return None;
     }
-    match ImageReader::open(path_str) {
+
+    // Try to load the image
+    let img = match ImageReader::open(file_path) {
         Ok(reader) => match reader.decode() {
-            Ok(img) => {
-                let (sheet_width_u32, sheet_height_u32) = img.dimensions();
-                let sheet_width = sheet_width_u32 as usize;
-                let sheet_height = sheet_height_u32 as usize;
-
-                if sheet_height != FRAME_HEIGHT {
-                    eprintln_once(&format!(
-                        "FEHLER: Sprite-Sheet '{}' Höhe ({}) entspricht nicht der FRAME_HEIGHT ({}).",
-                        path_str, sheet_height, FRAME_HEIGHT
-                    ));
-                    return None;
-                }
-                if sheet_width < FRAME_WIDTH {
-                    eprintln_once(&format!(
-                        "FEHLER: Sprite-Sheet '{}' Breite ({}) ist schmaler als ein einzelner Frame ({}).",
-                        path_str, sheet_width, FRAME_WIDTH
-                    ));
-                    return None;
-                }
-
-                let mut buffer: Vec<u32> = vec![0; sheet_width * sheet_height];
-                let color_type = img.color();
-
-                for (x, y, pixel) in img.pixels() {
-                    let r = pixel[0] as u32;
-                    let g = pixel[1] as u32;
-                    let b = pixel[2] as u32;
-                    let a = if pixel.0.len() > 3 && color_type.has_alpha() {
-                        pixel[3] as u32
-                    } else {
-                        0xFF
-                    };
-                    buffer[(y as usize * sheet_width) + x as usize] = (a << 24) | (r << 16) | (g << 8) | b;
-                }
-                Some((buffer, sheet_width, sheet_height))
-            }
-            Err(err) => {
-                eprintln_once(&format!("FEHLER beim Dekodieren des Bildes '{}': {}", path_str, err));
-                None
+            Ok(image) => image.to_rgba8(), // Convert to RGBA8 for consistent handling
+            Err(e) => {
+                warn_once(&format!("Failed to decode {}: {}", file_path, e));
+                return None;
             }
         },
-        Err(err) => {
-            eprintln_once(&format!("FEHLER beim Öffnen des Bildes '{}': {}", path_str, err));
-            None
+        Err(e) => {
+            warn_once(&format!("Can't open {}: {}", file_path, e));
+            return None;
         }
+    };
+
+    let (width, height) = img.dimensions();
+    let width = width as usize;
+    let height = height as usize;
+
+    // Basic sanity checks
+    if height != WINDOW_SIZE {
+        warn_once(&format!("Wrong height for {}: got {}, expected {}",
+                          file_path, height, WINDOW_SIZE));
+        return None;
     }
+
+    if width < WINDOW_SIZE {
+        warn_once(&format!("Image too narrow: {}", file_path));
+        return None;
+    }
+
+    // Convert pixels to RGBA format
+    let mut pixel_data = Vec::with_capacity(width * height);
+
+    for pixel in img.pixels() {
+        pixel_data.push(*pixel);
+    }
+
+    Some((pixel_data, width, height))
 }
 
-fn main() {
-    let mut sys = System::new_all();
+fn blend_alpha(background: [u8; 4], foreground: Rgba<u8>) -> [u8; 4] {
+    let [bg_r, bg_g, bg_b, bg_a] = background;
+    let fg_r = foreground[0];
+    let fg_g = foreground[1];
+    let fg_b = foreground[2];
+    let fg_a = foreground[3];
 
-    let mut window = Window::new(
-        "RAM Lava Lampe",
-        FRAME_WIDTH,
-        FRAME_HEIGHT,
-        WindowOptions {
-            resize: false,
-            scale_mode: ScaleMode::UpperLeft,
-            borderless: true,
-            ..WindowOptions::default()
-        },
-    )
-        .unwrap_or_else(|e| {
-            panic!("Fenster konnte nicht erstellt werden: {}", e);
-        });
+    if fg_a == 0 {
+        return background;
+    }
 
-    let mut current_sprite_sheet_data: Option<(Vec<u32>, usize, usize)> = None;
-    let mut current_sprite_path_str = "";
-    let mut display_buffer: Vec<u32> = vec![0; FRAME_WIDTH * FRAME_HEIGHT];
-    let mut current_frame_index: usize = 0;
-    let mut last_frame_time = Instant::now();
+    if fg_a == 255 {
+        return [fg_r, fg_g, fg_b, 255];
+    }
 
-    sys.refresh_memory();
+    // Alpha blending formula
+    let alpha = fg_a as f32 / 255.0;
+    let inv_alpha = 1.0 - alpha;
 
+    let r = (fg_r as f32 * alpha + bg_r as f32 * inv_alpha) as u8;
+    let g = (fg_g as f32 * alpha + bg_g as f32 * inv_alpha) as u8;
+    let b = (fg_b as f32 * alpha + bg_b as f32 * inv_alpha) as u8;
+    let a = ((fg_a as f32 * alpha + bg_a as f32 * inv_alpha).min(255.0)) as u8;
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        sys.refresh_memory();
-        let total_ram = sys.total_memory();
-        let used_ram = sys.used_memory();
-        let ram_usage_percent = if total_ram > 0 {
-            (used_ram as f64 / total_ram as f64) * 100.0
-        } else {
-            0.0
-        };
+    [r, g, b, a]
+}
 
-        let current_animation_delay = Duration::from_millis(if ram_usage_percent <= 30.0 {
-            200
-        } else if ram_usage_percent <= 50.0 {
-            150
-        } else if ram_usage_percent <= 80.0 {
-            100
-        } else {
-            60
-        });
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting RAM Lava Lamp...");
+    println!("Controls: + = Cycle Window Size (128→256→512→128), Esc = Exit");
 
-        let (target_sprite_path_str, target_color_name) = if ram_usage_percent <= 30.0 {
-            (SPRITE_PATH_GREEN, "Grün")
-        } else if ram_usage_percent <= 50.0 {
-            (SPRITE_PATH_YELLOW, "Gelb")
-        } else if ram_usage_percent <= 80.0 {
-            (SPRITE_PATH_ORANGE, "Orange")
-        } else {
-            (SPRITE_PATH_RED, "Rot")
-        };
+    let mut system = System::new_all();
 
-        if current_sprite_path_str != target_sprite_path_str {
-            println_once(&format!("Benötigtes Sprite-Sheet: {} ({})", target_color_name, target_sprite_path_str));
-            let new_data = load_sprite_sheet(target_sprite_path_str);
+    // Create event loop and window
+    let event_loop = EventLoop::new();
+    let window = {
+        let size = LogicalSize::new(WINDOW_SIZE as f64, WINDOW_SIZE as f64);
+        WindowBuilder::new()
+            .with_title("RAM Lava Lamp")
+            .with_inner_size(size)
+            .with_min_inner_size(LogicalSize::new(WINDOW_SIZE as f64, WINDOW_SIZE as f64))
+            .with_max_inner_size(LogicalSize::new((WINDOW_SIZE * 4) as f64, (WINDOW_SIZE * 4) as f64)) // Allow up to 4x size
+            .with_resizable(true) // Make it resizable so we can change the size
+            .with_decorations(false) // Borderless for widget feel
+            .build(&event_loop)?
+    };
 
-            if new_data.is_some() {
-                let (buf, w, h) = new_data.unwrap();
-                current_sprite_sheet_data = Some((buf, w, h));
-                current_sprite_path_str = target_sprite_path_str;
-                current_frame_index = 0;
-                println_once(&format!("Erfolgreich geladen: {}.", target_sprite_path_str));
-            } else {
-                eprintln_once(&format!("Fehler beim Laden von: {}.", target_sprite_path_str));
-                if target_sprite_path_str != SPRITE_PATH_GREEN && current_sprite_path_str != SPRITE_PATH_GREEN {
-                    println_once(&format!("Versuche Fallback auf GRÜN: {}", SPRITE_PATH_GREEN));
-                    let fallback_data = load_sprite_sheet(SPRITE_PATH_GREEN);
-                    if fallback_data.is_some() {
-                        let (buf, w, h) = fallback_data.unwrap();
-                        current_sprite_sheet_data = Some((buf, w, h));
-                        current_sprite_path_str = SPRITE_PATH_GREEN;
-                        current_frame_index = 0;
-                        println_once(&format!("Erfolgreich Fallback geladen: {}.", SPRITE_PATH_GREEN));
-                    } else {
-                        eprintln_once("KRITISCH: Fallback GRÜN konnte auch nicht geladen werden.");
-                        current_sprite_sheet_data = None;
-                        current_sprite_path_str = "";
-                    }
-                } else if target_sprite_path_str == SPRITE_PATH_GREEN {
-                    eprintln_once("KRITISCH: Ziel-Sprite GRÜN konnte nicht geladen werden.");
-                    current_sprite_sheet_data = None;
-                    current_sprite_path_str = "";
-                }
+    // Initialize pixels with scaling enabled
+    let mut pixels = {
+        let window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        // Create pixels buffer - this will automatically scale to fit the window
+        Pixels::new(WINDOW_SIZE as u32, WINDOW_SIZE as u32, surface_texture)?
+    };
+
+    // Window size state tracking
+    let mut current_size_mode = WindowSizeMode::Small; // New cycling size mode
+
+    // Animation state
+    let mut current_animation: Option<(Vec<Rgba<u8>>, usize, usize)> = None;
+    let mut current_sprite_file = "";
+    let mut frame_index = 0;
+    let mut last_update = Instant::now();
+    let mut last_ram_check = Instant::now();
+    let mut current_ram_percent = 0.0;
+
+    system.refresh_memory();
+    print_once("RAM monitoring started");
+
+    event_loop.run(move |event, _, control_flow| {
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                println!("Shutting down...");
+                *control_flow = ControlFlow::Exit;
             }
-        }
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { input, .. },
+                ..
+            } => {
+                if let Some(keycode) = input.virtual_keycode {
+                    if input.state == winit::event::ElementState::Pressed {
+                        match keycode {
+                            VirtualKeyCode::Escape => {
+                                println!("Shutting down...");
+                                *control_flow = ControlFlow::Exit;
+                            }
+                            VirtualKeyCode::Plus | VirtualKeyCode::Equals => {
+                                // Cycle through window sizes: 128 -> 256 -> 512 -> 128
+                                current_size_mode = current_size_mode.next();
+                                let size = current_size_mode.get_size();
 
-        if let Some((sheet_buffer, sheet_width, _sheet_height)) = &current_sprite_sheet_data {
-            let actual_frames_in_sheet = *sheet_width / FRAME_WIDTH;
+                                println!("Cycling window size to {}", current_size_mode.description());
 
-            if actual_frames_in_sheet > 0 && (*sheet_width % FRAME_WIDTH == 0) {
-                let effective_num_frames = if actual_frames_in_sheet < NUM_FRAMES {
-                    println_once(&format!("WARNUNG: Sprite-Sheet '{}' hat nur {} Frames (Breite: {}), erwartet wurden {}. Animation wird mit {} Frames abgespielt.", current_sprite_path_str, actual_frames_in_sheet, sheet_width, NUM_FRAMES, actual_frames_in_sheet));
-                    actual_frames_in_sheet
-                } else if actual_frames_in_sheet > NUM_FRAMES {
-                    println_once(&format!("WARNUNG: Sprite-Sheet '{}' hat {} Frames (Breite: {}), mehr als die erwarteten {}. Animation wird mit {} Frames (global NUM_FRAMES) abgespielt.", current_sprite_path_str, actual_frames_in_sheet, sheet_width, NUM_FRAMES, NUM_FRAMES));
-                    NUM_FRAMES
-                } else {
-                    NUM_FRAMES
-                };
-
-                if last_frame_time.elapsed() >= current_animation_delay {
-                    current_frame_index = (current_frame_index + 1) % effective_num_frames;
-                    last_frame_time = Instant::now();
-                }
-
-                let frame_x_offset = current_frame_index * FRAME_WIDTH;
-
-                for y_win in 0..FRAME_HEIGHT {
-                    // HIER WAR DER FEHLER, WIDTH wurde zu FRAME_WIDTH korrigiert:
-                    for x_win in 0..FRAME_WIDTH {
-                        let src_x = frame_x_offset + x_win;
-                        let src_idx = (y_win * *sheet_width) + src_x;
-                        let display_idx = y_win * FRAME_WIDTH + x_win;
-
-                        if src_idx < sheet_buffer.len() {
-                            display_buffer[display_idx] = sheet_buffer[src_idx];
-                        } else {
-                            display_buffer[display_idx] = 0xFFFF00FF; // Magenta bei Indexfehler
+                                let new_size = LogicalSize::new(size as f64, size as f64);
+                                window.set_inner_size(new_size);
+                                window.request_redraw();
+                            }
+                            _ => {}
                         }
                     }
                 }
-            } else {
-                eprintln_once(&format!("FEHLER: Sprite-Sheet '{}' (Breite: {}) ist nicht korrekt für Animation formatiert.", current_sprite_path_str, sheet_width));
-                display_buffer.iter_mut().for_each(|p| *p = 0xFFFF0000); // Rot als Fehleranzeige
             }
-        } else {
-            display_buffer.iter_mut().for_each(|p| *p = 0);
-        }
-
-        if let Err(err) = window.update_with_buffer(&display_buffer, FRAME_WIDTH, FRAME_HEIGHT) {
-            eprintln!("Fehler beim Fenster-Update: {}", err);
-            break;
-        }
-
-        let loop_min_duration = Duration::from_millis(10);
-        let elapsed_since_last_frame = last_frame_time.elapsed();
-
-        if elapsed_since_last_frame < current_animation_delay {
-            let time_to_next_frame = current_animation_delay - elapsed_since_last_frame;
-            let sleep_duration = time_to_next_frame.min(loop_min_duration);
-            if sleep_duration > Duration::ZERO {
-                std::thread::sleep(sleep_duration);
+            Event::WindowEvent {
+                event: WindowEvent::Resized(physical_size),
+                ..
+            } => {
+                // Handle window resize
+                println!("Window resized to: {}x{}", physical_size.width, physical_size.height);
+                if let Err(e) = pixels.resize_surface(physical_size.width, physical_size.height) {
+                    eprintln!("Failed to resize surface: {}", e);
+                }
+                // The pixels buffer will automatically scale the 128x128 content to fill the new window size
             }
-        } else {
-            std::thread::sleep(Duration::from_millis(1).min(loop_min_duration));
+            Event::RedrawRequested(_) => {
+                // Check RAM usage (but not too frequently)
+                if last_ram_check.elapsed() >= Duration::from_secs(1) {
+                    system.refresh_memory();
+
+                    let total_ram = system.total_memory();
+                    let used_ram = system.used_memory();
+                    current_ram_percent = if total_ram > 0 {
+                        (used_ram as f64 / total_ram as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+
+                    last_ram_check = Instant::now();
+                }
+
+                // Different animation speeds based on RAM usage
+                let animation_speed = if current_ram_percent <= 30.0 {
+                    Duration::from_millis(200)  // Slow and relaxed
+                } else if current_ram_percent <= 50.0 {
+                    Duration::from_millis(150)  // Getting busier
+                } else if current_ram_percent <= 80.0 {
+                    Duration::from_millis(100)  // Pretty busy
+                } else {
+                    Duration::from_millis(60)   // Frantic!
+                };
+
+                // Pick the right color based on RAM usage
+                let (sprite_file, color_name) = match current_ram_percent {
+                    p if p <= 30.0 => (GREEN_LAVA, "Green"),
+                    p if p <= 50.0 => (YELLOW_LAVA, "Yellow"),
+                    p if p <= 80.0 => (ORANGE_LAVA, "Orange"),
+                    _ => (RED_LAVA, "Red"),
+                };
+
+                // Load new animation if needed
+                if current_sprite_file != sprite_file {
+                    print_once(&format!("Switching to {} lava ({:.1}% RAM)", color_name, current_ram_percent));
+
+                    if let Some(new_anim) = load_lava_animation(sprite_file) {
+                        current_animation = Some(new_anim);
+                        current_sprite_file = sprite_file;
+                        frame_index = 0;
+                        print_once(&format!("Loaded {}", sprite_file));
+                    } else {
+                        warn_once(&format!("Failed to load {}", sprite_file));
+
+                        // Try falling back to green if it's not what we were trying to load
+                        if sprite_file != GREEN_LAVA {
+                            print_once("Trying green as fallback...");
+                            if let Some(fallback) = load_lava_animation(GREEN_LAVA) {
+                                current_animation = Some(fallback);
+                                current_sprite_file = GREEN_LAVA;
+                                frame_index = 0;
+                                print_once("Fallback successful");
+                            } else {
+                                warn_once("Even green fallback failed!");
+                                current_animation = None;
+                                current_sprite_file = "";
+                            }
+                        }
+                    }
+                }
+
+                // Get the pixel buffer
+                let frame = pixels.frame_mut();
+
+                // Clear background to black with full alpha
+                for pixel in frame.chunks_exact_mut(4) {
+                    pixel[0] = 0;   // R
+                    pixel[1] = 0;   // G
+                    pixel[2] = 0;   // B
+                    pixel[3] = 255; // A
+                }
+
+                // Animate if we have data
+                if let Some((sprite_data, sprite_width, _)) = &current_animation {
+                    let frames_available = *sprite_width / WINDOW_SIZE;
+
+                    if frames_available > 0 && (*sprite_width % WINDOW_SIZE == 0) {
+                        // Figure out how many frames we actually have vs expect
+                        let actual_frame_count = if frames_available < ANIMATION_FRAMES {
+                            print_once(&format!("Only {} frames available (expected {})",
+                                              frames_available, ANIMATION_FRAMES));
+                            frames_available
+                        } else if frames_available > ANIMATION_FRAMES {
+                            print_once(&format!("Extra frames found: {} (using {})",
+                                              frames_available, ANIMATION_FRAMES));
+                            ANIMATION_FRAMES
+                        } else {
+                            ANIMATION_FRAMES
+                        };
+
+                        // Advance frame if enough time has passed
+                        if last_update.elapsed() >= animation_speed {
+                            frame_index = (frame_index + 1) % actual_frame_count;
+                            last_update = Instant::now();
+                        }
+
+                        // Copy the current frame to our display buffer with alpha blending
+                        let frame_x_start = frame_index * WINDOW_SIZE;
+
+                        for y in 0..WINDOW_SIZE {
+                            for x in 0..WINDOW_SIZE {
+                                let source_x = frame_x_start + x;
+                                let source_index = (y * *sprite_width) + source_x;
+                                let dest_index = (y * WINDOW_SIZE + x) * 4;
+
+                                if source_index < sprite_data.len() {
+                                    let source_pixel = sprite_data[source_index];
+                                    let background = [
+                                        frame[dest_index],
+                                        frame[dest_index + 1],
+                                        frame[dest_index + 2],
+                                        frame[dest_index + 3]
+                                    ];
+
+                                    let blended = blend_alpha(background, source_pixel);
+
+                                    frame[dest_index] = blended[0];     // R
+                                    frame[dest_index + 1] = blended[1]; // G
+                                    frame[dest_index + 2] = blended[2]; // B
+                                    frame[dest_index + 3] = blended[3]; // A
+                                } else {
+                                    // Shouldn't happen, but just in case - magenta error
+                                    frame[dest_index] = 255;     // R
+                                    frame[dest_index + 1] = 0;   // G
+                                    frame[dest_index + 2] = 255; // B
+                                    frame[dest_index + 3] = 255; // A
+                                }
+                            }
+                        }
+                    } else {
+                        warn_once(&format!("Bad sprite format: width {}", sprite_width));
+                        // Fill with red to show there's an error
+                        for pixel in frame.chunks_exact_mut(4) {
+                            pixel[0] = 255; // R
+                            pixel[1] = 0;   // G
+                            pixel[2] = 0;   // B
+                            pixel[3] = 255; // A
+                        }
+                    }
+                }
+
+                // Render the frame
+                if let Err(e) = pixels.render() {
+                    eprintln!("pixels.render() failed: {}", e);
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Event::MainEventsCleared => {
+                // Request redraw
+                window.request_redraw();
+            }
+            _ => {}
         }
-    }
+    });
 }
