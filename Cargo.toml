@@ -1,0 +1,15 @@
+[package]
+name = "ram-lavalampe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pixels = "0.13"
+winit = "0.28"
+image = "0.24"
+sysinfo = "0.29"
+lazy_static = "1.4"
+
+[profile.release]
+opt-level = 3
+lto = true
