@@ -124,7 +124,7 @@ ram-lavalampe/
 └── README.md           # This file
 ```
 
-## 🔧 Configuration
+##  Configuration
 
 You can modify these constants in `src/main.rs`:
 
@@ -145,7 +145,7 @@ const ANIMATION_FRAMES: usize = 169;    // Number of animation frames
 // Red:    60ms (frantic!)
 ```
 
-## 🛠️ Building from Source
+##  Building from Source
 
 ### Debug Build
 ```bash
