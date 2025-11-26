@@ -2,7 +2,7 @@
 
 A beautiful desktop widget that visualizes your system's RAM usage as an animated lava lamp. The color and animation speed change based on memory consumption, providing an aesthetic and functional way to monitor your system resources.
 
-![Lava Lamp Demo](img/lavalamp2.gif)
+
 
 ##  Features
 
@@ -17,13 +17,13 @@ A beautiful desktop widget that visualizes your system's RAM usage as an animate
 - **Borderless widget** - Clean, minimal desktop widget aesthetic
 - **Smooth 169-frame animation** - Fluid lava lamp effect
 
-## 🎮 Controls
+##  Controls
 
 - **Ctrl + Up Arrow**: Scale window up
 - **Ctrl + Down Arrow**: Scale window down  
 - **Esc**: Exit application
 
-## 📋 Requirements
+##  Requirements
 
 - **Rust** (1.70 or newer)
 - **Linux** (tested on Ubuntu/Debian-based systems)
