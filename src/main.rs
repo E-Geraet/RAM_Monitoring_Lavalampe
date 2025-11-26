@@ -14,14 +14,15 @@ use std::sync::Mutex;
 use std::env;
 
 const WINDOW_SIZE: usize = 128;
-const ANIMATION_FRAMES: usize = 169;  // Korrigiert auf 169 Frames!
+const ANIMATION_FRAMES: usize = 169;
 
+// --- ÄNDERUNG 1: XLarge hinzugefügt ---
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum WindowSizeMode {
     Small,
     Medium,
     Large,
-    XLarge,
+    XLarge, 
 }
 
 impl WindowSizeMode {
@@ -30,7 +31,8 @@ impl WindowSizeMode {
             WindowSizeMode::Small => WINDOW_SIZE,
             WindowSizeMode::Medium => WINDOW_SIZE * 2,
             WindowSizeMode::Large => WINDOW_SIZE * 4,
-            WindowSizeMode::XLarge => WINDOW_SIZE * 8,
+            // --- ÄNDERUNG 2: Hier steht jetzt korrekt XLarge ---
+            WindowSizeMode::XLarge => WINDOW_SIZE * 8, 
         }
     }
 
@@ -74,55 +76,34 @@ fn print_once(msg: &str) {
     }
 }
 
-fn warn_once(msg: &str) {
-    let mut cache = ALREADY_PRINTED.lock().unwrap();
-    if !cache.contains(msg) {
-        eprintln!("Warning: {}", msg);
-        cache.insert(msg.to_string());
-    }
-}
+
 
 fn find_asset_path(filename: &str) -> Option<PathBuf> {
-    // Strategie 1: Relativ zum aktuellen Verzeichnis
     let path = PathBuf::from("assets").join(filename);
-    if path.exists() {
-        return Some(path);
-    }
+    if path.exists() { return Some(path); }
     
-    // Strategie 2: Relativ zur ausführbaren Datei
     if let Ok(exe_path) = env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let path = exe_dir.join("assets").join(filename);
-            if path.exists() {
-                return Some(path);
-            }
+            if path.exists() { return Some(path); }
             
-            // Strategie 3: Ein Verzeichnis höher (für cargo run im debug/release)
             if let Some(parent_dir) = exe_dir.parent() {
                 let path = parent_dir.join("assets").join(filename);
-                if path.exists() {
-                    return Some(path);
-                }
+                if path.exists() { return Some(path); }
                 
-                // Strategie 4: Zwei Verzeichnisse höher (für target/debug oder target/release)
                 if let Some(grandparent_dir) = parent_dir.parent() {
                     let path = grandparent_dir.join("assets").join(filename);
-                    if path.exists() {
-                        return Some(path);
-                    }
+                    if path.exists() { return Some(path); }
                 }
             }
         }
     }
     
-    // Strategie 5: Im User's .local/share Verzeichnis (für installierte Version)
     if let Some(home_dir) = env::var_os("HOME") {
         let path = PathBuf::from(home_dir)
             .join(".local/share/ram-lavalampe/assets")
             .join(filename);
-        if path.exists() {
-            return Some(path);
-        }
+        if path.exists() { return Some(path); }
     }
     
     None
@@ -133,11 +114,6 @@ fn load_lava_animation(filename: &str) -> Option<(Vec<Rgba<u8>>, usize, usize)> 
         Some(path) => path,
         None => {
             eprintln!(">>> ERROR: Could not find asset file: {}", filename);
-            eprintln!("    Searched in multiple locations relative to:");
-            eprintln!("    - Current directory: {}", env::current_dir().unwrap_or_default().display());
-            if let Ok(exe) = env::current_exe() {
-                eprintln!("    - Executable location: {}", exe.display());
-            }
             return None;
         }
     };
@@ -145,17 +121,11 @@ fn load_lava_animation(filename: &str) -> Option<(Vec<Rgba<u8>>, usize, usize)> 
     println!(">>> Attempting to load: {}", file_path.display());
     
     let img = match ImageReader::open(&file_path) {
-        Ok(reader) => {
-            println!("    ✓ File opened successfully");
-            match reader.decode() {
-                Ok(image) => {
-                    println!("    ✓ Image decoded successfully");
-                    image.to_rgba8()
-                },
-                Err(e) => {
-                    eprintln!("    ERROR: Failed to decode {}: {}", file_path.display(), e);
-                    return None;
-                }
+        Ok(reader) => match reader.decode() {
+            Ok(image) => image.to_rgba8(),
+            Err(e) => {
+                eprintln!("    ERROR: Failed to decode {}: {}", file_path.display(), e);
+                return None;
             }
         },
         Err(e) => {
@@ -168,25 +138,17 @@ fn load_lava_animation(filename: &str) -> Option<(Vec<Rgba<u8>>, usize, usize)> 
     let width = width as usize;
     let height = height as usize;
 
-    println!("    Dimensions: {}x{} pixels", width, height);
-
     if height != WINDOW_SIZE {
         eprintln!("    ERROR: Wrong height! Got {}, expected {}", height, WINDOW_SIZE);
         return None;
     }
-    println!("    ✓ Height is correct ({})", height);
 
     let expected_width = ANIMATION_FRAMES * WINDOW_SIZE;
     if width != expected_width {
-        eprintln!("    WARNING: Width is {} but expected {} (for {} frames of {} pixels)", 
-                  width, expected_width, ANIMATION_FRAMES, WINDOW_SIZE);
         if width % WINDOW_SIZE != 0 {
             eprintln!("    ERROR: Width {} is not divisible by frame size {}", width, WINDOW_SIZE);
             return None;
         }
-        println!("    Will use {} frames instead", width / WINDOW_SIZE);
-    } else {
-        println!("    ✓ Width is correct ({})", width);
     }
 
     let mut pixel_data = Vec::with_capacity(width * height);
@@ -194,8 +156,6 @@ fn load_lava_animation(filename: &str) -> Option<(Vec<Rgba<u8>>, usize, usize)> 
         pixel_data.push(*pixel);
     }
 
-    let frame_count = width / WINDOW_SIZE;
-    println!("    ✓ Successfully loaded {} frames", frame_count);
     Some((pixel_data, width, height))
 }
 
@@ -206,13 +166,8 @@ fn blend_alpha(background: [u8; 4], foreground: Rgba<u8>) -> [u8; 4] {
     let fg_b = foreground[2];
     let fg_a = foreground[3];
 
-    if fg_a == 0 {
-        return background;
-    }
-
-    if fg_a == 255 {
-        return [fg_r, fg_g, fg_b, 255];
-    }
+    if fg_a == 0 { return background; }
+    if fg_a == 255 { return [fg_r, fg_g, fg_b, 255]; }
 
     let alpha = fg_a as f32 / 255.0;
     let inv_alpha = 1.0 - alpha;
@@ -239,9 +194,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_title("RAM Lava Lamp")
             .with_inner_size(size)
             .with_min_inner_size(LogicalSize::new(WINDOW_SIZE as f64, WINDOW_SIZE as f64))
-            .with_max_inner_size(LogicalSize::new((WINDOW_SIZE * 8) as f64, (WINDOW_SIZE * 4) as f64))
+            // --- ÄNDERUNG 3: Max Size entfernt und Decorations auf true ---
+            // .with_max_inner_size wurde entfernt!
             .with_resizable(true)
-            .with_decorations(false)
+            .with_decorations(true) // Setze dies auf true, damit der Window Manager besser mitarbeitet
             .build(&event_loop)?
     };
 
@@ -332,7 +288,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 event: WindowEvent::Resized(physical_size),
                 ..
             } => {
-                println!("Window resized to: {}x{}", physical_size.width, physical_size.height);
+                // Nur loggen, wenn sich wirklich was ändert, um Spam zu vermeiden
+                // println!("Window resized to: {}x{}", physical_size.width, physical_size.height);
                 if let Err(e) = pixels.resize_surface(physical_size.width, physical_size.height) {
                     eprintln!("Failed to resize surface: {}", e);
                 }
@@ -381,7 +338,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         None => {
                             eprintln!("✗ Failed to load {}", sprite_file);
-
                             if sprite_file != "lavalampe_green.png" {
                                 println!("Trying green as fallback...");
                                 if let Some(fallback) = load_lava_animation("lavalampe_green.png") {
@@ -390,12 +346,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     current_sprite_file = "lavalampe_green.png";
                                     frame_index = 0;
                                 } else {
-                                    eprintln!("✗ Even green fallback failed! No animation available!");
                                     current_animation = None;
                                     current_sprite_file = "";
                                 }
                             } else {
-                                eprintln!("✗ No animation available!");
                                 current_animation = None;
                                 current_sprite_file = "";
                             }
@@ -405,37 +359,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let frame = pixels.frame_mut();
 
-                // Clear background to black with full alpha
+                // Clear background
                 for pixel in frame.chunks_exact_mut(4) {
-                    pixel[0] = 0;
-                    pixel[1] = 0;
-                    pixel[2] = 0;
-                    pixel[3] = 255;
+                    pixel[0] = 0; pixel[1] = 0; pixel[2] = 0; pixel[3] = 255;
                 }
 
-                // If no animation is loaded, show a debug pattern
+                // Debug pattern if no animation
                 if current_animation.is_none() {
-                    eprintln!("WARNING: No animation loaded! Showing debug pattern.");
-                    // Simple color test pattern based on RAM
                     let color = match current_ram_percent {
-                        p if p <= 30.0 => [0, 255, 0, 255],    // Green
-                        p if p <= 50.0 => [255, 255, 0, 255],  // Yellow
-                        p if p <= 80.0 => [255, 165, 0, 255],  // Orange
-                        _ => [255, 0, 0, 255],                 // Red
+                        p if p <= 30.0 => [0, 255, 0, 255],
+                        p if p <= 50.0 => [255, 255, 0, 255],
+                        p if p <= 80.0 => [255, 165, 0, 255],
+                        _ => [255, 0, 0, 255],
                     };
-                    
-                    // Fill with solid color as test
                     for pixel in frame.chunks_exact_mut(4) {
                         pixel.copy_from_slice(&color);
                     }
                 }
 
-                // Animate if we have data
+                // Render animation
                 if let Some((sprite_data, sprite_width, _)) = &current_animation {
                     let frames_available = *sprite_width / WINDOW_SIZE;
-
                     if frames_available > 0 && (*sprite_width % WINDOW_SIZE == 0) {
-                        // Verwende die tatsächlich verfügbare Frame-Anzahl
                         let actual_frame_count = frames_available.min(ANIMATION_FRAMES);
 
                         if last_update.elapsed() >= animation_speed {
@@ -454,33 +399,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if source_index < sprite_data.len() {
                                     let source_pixel = sprite_data[source_index];
                                     let background = [
-                                        frame[dest_index],
-                                        frame[dest_index + 1],
-                                        frame[dest_index + 2],
-                                        frame[dest_index + 3]
+                                        frame[dest_index], frame[dest_index + 1],
+                                        frame[dest_index + 2], frame[dest_index + 3]
                                     ];
-
                                     let blended = blend_alpha(background, source_pixel);
-
                                     frame[dest_index] = blended[0];
                                     frame[dest_index + 1] = blended[1];
                                     frame[dest_index + 2] = blended[2];
                                     frame[dest_index + 3] = blended[3];
-                                } else {
-                                    frame[dest_index] = 255;
-                                    frame[dest_index + 1] = 0;
-                                    frame[dest_index + 2] = 255;
-                                    frame[dest_index + 3] = 255;
                                 }
                             }
-                        }
-                    } else {
-                        warn_once(&format!("Bad sprite format: width {}", sprite_width));
-                        for pixel in frame.chunks_exact_mut(4) {
-                            pixel[0] = 255;
-                            pixel[1] = 0;
-                            pixel[2] = 0;
-                            pixel[3] = 255;
                         }
                     }
                 }

@@ -1,8 +1,8 @@
 #  RAM Lava Lamp
 
+![Lavalampen-Demo](img/lavalamp2.gif)
+
 A beautiful desktop widget that visualizes your system's RAM usage as an animated lava lamp. The color and animation speed change based on memory consumption, providing an aesthetic and functional way to monitor your system resources.
-
-
 
 ##  Features
 
@@ -14,7 +14,7 @@ A beautiful desktop widget that visualizes your system's RAM usage as an animate
   -  **Red** (80-100%): Critical memory usage
 - **Dynamic animation speed** - Animation speeds up as RAM usage increases
 - **Scalable window** - 128×128, 256×256, 512×512, or 1024×1024 pixels
-- **Borderless widget** - Clean, minimal desktop widget aesthetic
+- **Normal windowed mode** - Standard window with borders and decorations
 - **Smooth 169-frame animation** - Fluid lava lamp effect
 
 ##  Controls
@@ -22,6 +22,19 @@ A beautiful desktop widget that visualizes your system's RAM usage as an animate
 - **Ctrl + Up Arrow**: Scale window up
 - **Ctrl + Down Arrow**: Scale window down  
 - **Esc**: Exit application
+
+## Known Issues
+
+**Shadow rendering bug**: There is currently a visual bug where the shadow in the bottom-left corner of the lava lamp is missing or not rendering correctly. I discovered this issue but haven't been able to fix it yet. If anyone has a solution or suggestions, contributions would be greatly appreciated!
+
+##  Future Plans
+
+The following features are planned for future releases:
+- **CPU usage visualization** - Monitor processor load
+- **GPU usage visualization** - Track graphics card activity
+- **VRAM monitoring** - Display video memory usage
+- **Multi-monitor support** - Show different metrics on multiple widgets
+- **Customizable thresholds** - User-defined color change points
 
 ##  Requirements
 
@@ -159,11 +172,11 @@ The compiled binary will be in `target/release/ram-lavalampe`.
 ### Assets not found
 Make sure you're running the application from the project directory, or use the installation script to install it system-wide.
 
-### Window won't scale beyond 512×512
-This might be a limitation of your window manager. Try running the application in windowed mode or check your system's display settings.
-
 ### High CPU usage
 The application continuously redraws at ~60 FPS. This is normal for a real-time visualization widget.
+
+### Shadow bug in bottom-left corner
+This is a known rendering issue. If you have experience with pixel-based rendering or sprite sheet rendering and can help fix this, please open an issue or submit a pull request!
 
 ##  License
 
@@ -176,10 +189,12 @@ Contributions are welcome! Feel free to:
 - Suggest new features
 - Submit pull requests
 - Create new lava lamp color schemes
+- **Help fix the shadow rendering bug!**
+
+If you have ideas for the planned features (CPU, GPU, VRAM monitoring) or solutions for the current bugs, your input would be greatly appreciated!
 
 ##  Acknowledgments
 
 - Built with Rust 🦀
 - Uses the excellent `pixels` crate for efficient rendering
 - Inspired by classic lava lamp aesthetics
-
